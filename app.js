@@ -605,7 +605,7 @@ function computeLeader(s) {
 
 function renderTournamentCard(s, { isPast }) {
   const li = document.createElement('li')
-  li.className = `bg-panel border border-line rounded-2xl p-4 flex items-center gap-3 ${isPast ? 'opacity-80' : ''}`
+  li.className = `bg-panel border border-line rounded-2xl shadow-sm p-4 flex items-center gap-3 ${isPast ? 'opacity-80' : ''}`
   li.dataset.resumeRoom = s.roomId
   li.style.cursor = 'pointer'
 
@@ -659,9 +659,9 @@ function renderTournamentCard(s, { isPast }) {
       ${leader ? `<div class="text-xs text-amber mt-0.5 truncate">🏆 ${escapeHtml(leader)}</div>` : ''}
     </div>
     <div class="flex flex-col gap-1 shrink-0">
-      <span class="bg-volt text-bg text-xs font-bold px-3 py-2 rounded-lg text-center pointer-events-none">${primaryActionLabel}</span>
+      <span class="bg-volt text-white shadow-sm text-xs font-bold px-4 py-2 rounded-full text-center pointer-events-none">${primaryActionLabel}</span>
       <button type="button" data-delete-room="${escapeHtml(s.roomId)}"
-              class="bg-panel2 border border-line text-sub text-xs px-3 py-2 rounded-lg active:scale-95 transition"
+              class="bg-panel2 border border-line text-sub text-xs px-3 py-2 rounded-full hover:shadow-md active:scale-95 transition"
               aria-label="Remove from this device">🗑</button>
     </div>
   `
@@ -797,7 +797,7 @@ function renderLobby() {
     teamsStatus.textContent = `${state.teams.length} teams`
     state.teams.forEach(t => {
       const div = document.createElement('div')
-      div.className = 'bg-panel2 border border-line rounded-xl p-3'
+      div.className = 'bg-panel2 border border-line rounded-full hover:shadow-md p-3'
       const playerNames = t.playerIds.map(id => state.players.find(p => p.id === id)?.name || '?').join(' + ')
       div.innerHTML = `
         <div class="font-display font-bold text-ink">${escapeHtml(t.name)}</div>
@@ -854,7 +854,7 @@ function renderMatchCard(m, teamById) {
   const aWon = m.done && m.scoreA > m.scoreB
   const bWon = m.done && m.scoreB > m.scoreA
 
-  card.className = `bg-panel border border-line rounded-2xl p-4 ${m.done ? 'opacity-90' : ''}`
+  card.className = `bg-panel border border-line rounded-2xl shadow-sm p-4 ${m.done ? 'opacity-90' : ''}`
   card.innerHTML = `
     <div class="flex items-center justify-between mb-3">
       <div class="text-xs uppercase tracking-widest text-sub font-semibold">
@@ -865,36 +865,37 @@ function renderMatchCard(m, teamById) {
       </div>
     </div>
 
+    <!-- BWF Clean Light Layout -->
     <div class="grid grid-cols-[1fr_auto_1fr] gap-3 items-center">
       <div class="team-side p-3 rounded-xl border border-line ${aWon ? 'winner' : (m.done ? 'loser' : '')}">
-        <div class="font-display font-bold truncate">${escapeHtml(A?.name || '?')}</div>
-        <div class="text-xs text-sub mt-0.5 truncate">${escapeHtml(playerNames(A))}</div>
-        <input type="number" class="score-input mt-2"
+        <div class="font-display font-bold truncate text-center">${escapeHtml(A?.name || '?')}</div>
+        <div class="text-xs text-sub mt-0.5 truncate text-center">${escapeHtml(playerNames(A))}</div>
+        <input type="number" class="score-input mt-2 w-full text-center rounded-lg border border-line py-2 bg-panel2 text-ink text-xl font-bold focus:ring focus:ring-danger/20 focus:border-danger outline-none"
                inputmode="numeric" min="0" max="30"
                data-score="${m.id}" data-side="a"
                value="${m.scoreA ?? ''}"
-               placeholder="–" />
+               placeholder="-" />
       </div>
 
       <div class="text-center text-sub font-display font-bold">vs</div>
 
       <div class="team-side p-3 rounded-xl border border-line ${bWon ? 'winner' : (m.done ? 'loser' : '')}">
-        <div class="font-display font-bold truncate text-right">${escapeHtml(B?.name || '?')}</div>
-        <div class="text-xs text-sub mt-0.5 truncate text-right">${escapeHtml(playerNames(B))}</div>
-        <input type="number" class="score-input mt-2"
+        <div class="font-display font-bold truncate text-center">${escapeHtml(B?.name || '?')}</div>
+        <div class="text-xs text-sub mt-0.5 truncate text-center">${escapeHtml(playerNames(B))}</div>
+        <input type="number" class="score-input mt-2 w-full text-center rounded-lg border border-line py-2 bg-panel2 text-ink text-xl font-bold focus:ring focus:ring-danger/20 focus:border-danger outline-none"
                inputmode="numeric" min="0" max="30"
                data-score="${m.id}" data-side="b"
                value="${m.scoreB ?? ''}"
-               placeholder="–" />
+               placeholder="-" />
       </div>
     </div>
 
-    <div class="flex gap-2 mt-3">
+    <div class="flex gap-2 mt-4">
       <button data-role="log-score" data-match="${m.id}"
-              class="flex-1 bg-danger text-ink font-bold py-3 rounded-xl active:scale-95 transition">
-        ${m.done ? '↻ Update Score' : '💀 Log the Carnage'}
+              class="flex-1 bg-danger text-white shadow-sm font-bold py-3 rounded-full active:scale-95 transition">
+        ${m.done ? '↻ Update Score' : 'Log Score'}
       </button>
-      ${m.done ? `<button data-role="clear-score" data-match="${m.id}" class="bg-panel2 border border-line px-4 rounded-xl text-sub">Clear</button>` : ''}
+      ${m.done ? `<button data-role="clear-score" data-match="${m.id}" class="bg-panel2 border border-line px-4 rounded-full text-sub hover:text-ink font-semibold active:scale-95 transition">Clear</button>` : ''}
     </div>
   `
   return card
@@ -941,20 +942,20 @@ function renderLeaderboard() {
   standings.forEach((s, i) => {
     const rankClass = i === 0 ? 'rank-1' : i === 1 ? 'rank-2' : i === 2 ? 'rank-3' : ''
     const li = document.createElement('li')
-    li.className = `bg-panel border border-line rounded-2xl p-4 flex items-center gap-3 ${rankClass}`
+    li.className = `bg-panel border border-line rounded-2xl shadow-sm p-4 flex items-center gap-3 ${rankClass}`
     const diff = s.pf - s.pa
     const diffStr = (diff >= 0 ? '+' : '') + diff
     li.innerHTML = `
-      <div class="w-10 h-10 rounded-full bg-panel2 border border-line flex items-center justify-center font-display font-bold text-lg ${i === 0 ? 'text-amber' : ''}">
+      <div class="w-12 h-12 shrink-0 rounded-full bg-panel2 shadow-sm border border-line flex items-center justify-center font-display font-bold text-xl ${i === 0 ? 'text-amber' : ''}">
         ${i + 1}
       </div>
-      <div class="flex-1 min-w-0">
-        <div class="font-display font-bold truncate">${escapeHtml(s.team.name)}</div>
+      <div class="flex-1 min-w-0 flex flex-col justify-center">
+        <div class="font-display font-bold text-lg truncate">${escapeHtml(s.team.name)}</div>
         <div class="text-xs text-sub truncate">${escapeHtml(playerNames(s.team))}</div>
       </div>
-      <div class="text-right">
-        <div class="font-mono text-lg font-bold">${s.wins}<span class="text-sub text-sm font-normal">–${s.losses}</span></div>
-        <div class="text-xs font-mono ${diff > 0 ? 'text-court' : diff < 0 ? 'text-danger' : 'text-sub'}">${diffStr}</div>
+      <div class="text-right flex flex-col justify-center">
+        <div class="font-mono text-xl font-bold">${s.wins}<span class="text-sub text-sm font-normal">–${s.losses}</span></div>
+        <div class="text-xs font-mono font-bold ${diff > 0 ? 'text-court' : diff < 0 ? 'text-danger' : 'text-sub'}">${diffStr}</div>
       </div>
     `
     list.appendChild(li)

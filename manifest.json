@@ -1,0 +1,16 @@
+{
+  "name": "Carnage Courts",
+  "short_name": "Carnage",
+  "description": "Zero-auth badminton tournament engine. Mobile-first, realtime.",
+  "start_url": "./",
+  "display": "standalone",
+  "background_color": "#0a0f1d",
+  "theme_color": "#0a0f1d",
+  "icons": [
+    {
+      "src": "assets/icon.png",
+      "sizes": "1024x1024",
+      "type": "image/png"
+    }
+  ]
+}
