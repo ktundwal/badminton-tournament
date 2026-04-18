@@ -185,6 +185,11 @@ async function createRoom({ roomName, pin, tournamentDate }) {
   saveLocal()
   setRoomInURL(roomName)
   joinTrysteroRoom(roomName)
+  // Auto-register the creator if we remember their name — they're clearly
+  // playing the tournament they just created.
+  if (myName && !state.players.some(p => p.name.toLowerCase() === myName.toLowerCase())) {
+    addPlayer(myName)
+  }
   render()
 }
 
@@ -634,6 +639,14 @@ function renderLobby() {
     }
   }
   $('[data-role="player-count"]').textContent = state.players.length
+
+  // Pre-fill the add-player input with the remembered name so the user
+  // just taps Add — no retyping across tournaments.
+  const nameInput = $('[data-role="add-player-name"]')
+  const alreadyInRoom = myName && state.players.some(p => p.name.toLowerCase() === myName.toLowerCase())
+  if (nameInput && !nameInput.value && myName && !alreadyInRoom) {
+    nameInput.value = myName
+  }
 
   // Randomize button gating
   const rand = $('[data-role="randomize-teams"]')
