@@ -49,16 +49,21 @@
 
   <!-- HEADER -->
   <header class="sticky top-0 z-30 bg-bg/95 backdrop-blur border-b border-line">
-    <div class="max-w-3xl mx-auto px-4 py-3 flex items-center justify-between gap-3">
-      <button type="button" data-role="brand" class="min-w-0 flex-1 text-left active:opacity-60 transition" aria-label="Home">
+    <div class="max-w-3xl mx-auto px-4 py-3 flex items-center gap-3">
+      <button type="button" data-role="brand"
+              class="shrink-0 active:opacity-60 transition"
+              aria-label="Home">
+        <img src="assets/bwf-logo.svg" alt="BWF" class="h-9 w-auto block" />
+      </button>
+      <div class="min-w-0 flex-1">
         <div class="flex items-center gap-2 text-[11px] uppercase tracking-widest text-sub">
           <span class="inline-block w-2 h-2 rounded-full bg-sub" data-role="conn-dot"></span>
           <span data-role="conn-label">Offline</span>
         </div>
-        <h1 class="font-display text-xl leading-tight truncate">
+        <h1 class="font-display text-lg leading-tight truncate">
           <span data-role="room-name">Carnage Courts</span>
         </h1>
-      </button>
+      </div>
       <button type="button" data-role="share-btn"
               class="shrink-0 bg-panel2 border border-line active:scale-95 transition text-ink font-semibold text-sm px-3 py-2 rounded-lg hidden"
               aria-label="Share room link">
@@ -73,8 +78,7 @@
 
       <!-- VIEW: WELCOME — first-time identity capture -->
       <section data-view="welcome" class="hidden space-y-6">
-        <div class="text-center pt-6">
-          <img src="assets/bwf-logo.svg" alt="BWF" class="h-16 w-auto mx-auto mb-3" />
+        <div class="text-center pt-8">
           <h2 class="font-display text-3xl font-bold tracking-tight">Welcome to Carnage Courts</h2>
           <p class="text-sub mt-1 text-sm">Identify yourself once per device.</p>
         </div>
@@ -101,9 +105,8 @@
       <!-- VIEW: HOME — lists tournaments on this device -->
       <section data-view="home" class="hidden space-y-6">
         <div class="text-center pt-4">
-          <img src="assets/bwf-logo.svg" alt="BWF" class="h-16 w-auto mx-auto mb-3" />
-          <h2 class="font-display text-3xl font-bold tracking-tight">Carnage Courts</h2>
-          <p class="text-sub mt-1 text-sm">Peer-to-peer. No signup. Bring the shuttle.</p>
+          <h2 class="font-display text-2xl font-bold tracking-tight">Your Tournaments</h2>
+          <p class="text-sub mt-1 text-sm">Tap a card to join, or create a new one.</p>
           <p data-role="home-greeting" class="hidden text-sm mt-3">
             Signed in as <span class="text-court font-semibold" data-role="home-greeting-name"></span>
             <button type="button" data-role="home-change-name" class="text-xs text-sub underline ml-1 active:text-ink">not you?</button>
@@ -144,8 +147,7 @@
           ← Back to tournaments
         </button>
 
-        <div class="text-center pt-2">
-          <img src="assets/bwf-logo.svg" alt="BWF" class="h-12 w-auto mx-auto mb-2" />
+        <div class="text-center pt-4">
           <h2 class="font-display text-2xl font-bold tracking-tight">New Tournament</h2>
         </div>
 
