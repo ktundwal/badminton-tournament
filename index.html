@@ -65,12 +65,43 @@
   <main class="flex-1 overflow-y-auto pb-28">
     <div class="max-w-3xl mx-auto px-4 py-5">
 
+      <!-- VIEW: WELCOME — first-time identity capture -->
+      <section data-view="welcome" class="hidden space-y-6">
+        <div class="text-center pt-6">
+          <div class="text-6xl mb-2">🏸</div>
+          <h2 class="font-display text-3xl font-bold tracking-tight">Welcome to Carnage Courts</h2>
+          <p class="text-sub mt-1 text-sm">Identify yourself once per device.</p>
+        </div>
+
+        <form data-role="welcome-form" class="bg-panel border border-line rounded-2xl p-5 space-y-3">
+          <label for="welcome-name-input" class="block text-xs uppercase tracking-widest text-sub font-semibold">Your name</label>
+          <input id="welcome-name-input" data-role="welcome-name"
+                 type="text"
+                 aria-label="Your name"
+                 class="w-full bg-panel2 border border-line rounded-xl px-4 py-4 text-lg font-display focus:outline-none focus:border-volt"
+                 placeholder="e.g. Kapil"
+                 autocomplete="nickname"
+                 maxlength="24" />
+          <button type="submit"
+                  class="w-full bg-volt text-bg font-display font-bold text-lg py-4 rounded-xl active:scale-[0.98] transition">
+            Continue →
+          </button>
+          <p class="text-xs text-sub text-center pt-1">
+            Use the same name on another device to stay linked across your phone, tablet, and laptop.
+          </p>
+        </form>
+      </section>
+
       <!-- VIEW: HOME — lists tournaments on this device -->
       <section data-view="home" class="hidden space-y-6">
         <div class="text-center pt-4">
           <div class="text-6xl mb-2">🏸</div>
           <h2 class="font-display text-3xl font-bold tracking-tight">Carnage Courts</h2>
           <p class="text-sub mt-1 text-sm">Peer-to-peer. No signup. Bring the shuttle.</p>
+          <p data-role="home-greeting" class="hidden text-sm mt-3">
+            Signed in as <span class="text-volt font-semibold" data-role="home-greeting-name"></span>
+            <button type="button" data-role="home-change-name" class="text-xs text-sub underline ml-1 active:text-ink">not you?</button>
+          </p>
         </div>
 
         <div data-role="home-today" class="hidden space-y-2">

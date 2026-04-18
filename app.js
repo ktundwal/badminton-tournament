@@ -194,24 +194,33 @@ function joinHomeListener(roomId) {
   }
   const [sendState, getState] = room.makeAction('state')
 
-  getState((remote /* , peerId */) => {
+  getState((remote, peerId) => {
     if (!remote || typeof remote.v !== 'number') return
     if (remote.roomId && remote.roomId !== roomId) return
     const local = loadLocal(roomId)
-    if (remote.deleted) {
-      localStorage.removeItem(LS_STATE(roomId))
-      localStorage.removeItem(LS_PIN(roomId))
-      leaveHomeListener(roomId)
-      if (!state.roomId) renderHome()
+    const localDeleted = local?.deleted === true
+    const remoteDeleted = remote.deleted === true
+
+    // Sticky deletion: once a tombstone is known locally, no newer
+    // non-deleted state may resurrect it. Push our tombstone back so
+    // the peer learns and propagates.
+    if (localDeleted && !remoteDeleted) {
+      try { sendState(local, peerId) } catch {}
       return
     }
+
     if ((remote.v || 0) > (local?.v || 0)) {
       localStorage.setItem(LS_STATE(roomId), JSON.stringify(remote))
+      // Don't strip PIN on tombstone receipt — PIN was only cached on
+      // the original admin's device anyway.
       if (!state.roomId) renderHome()
     }
   })
 
   room.onPeerJoin(peerId => {
+    // Push our latest known state (which may be a tombstone). Tombstones
+    // propagate virally this way — every new WebRTC handshake re-delivers
+    // them to anyone who hadn't yet seen the delete.
     const local = loadLocal(roomId)
     if (local) { try { sendState(local, peerId) } catch {} }
   })
@@ -235,38 +244,33 @@ function stopAllHomeListeners() {
   for (const rid of [...homeListeners.keys()]) leaveHomeListener(rid)
 }
 
-// Broadcast a tombstone for a room this device is about to delete, then
-// remove our own local copy. If no peer is online at the moment, the
-// tombstone is lost — that's OK; local delete still happens.
+// Record a tombstone for a room and broadcast it. The tombstone is kept
+// in localStorage (not removed) so the home listener keeps re-delivering
+// it to new peers via onPeerJoin — that's how a delete propagates virally
+// to anyone who wasn't online at the moment it was issued.
 async function broadcastDelete(roomId) {
-  let handle = homeListeners.get(roomId)
-  let ephemeral = false
-  if (!handle) {
-    try {
-      const room = joinRoom({ appId: APP_ID }, roomId)
-      const [sendState] = room.makeAction('state')
-      handle = { room, sendState }
-      ephemeral = true
-      // Wait a moment for peer discovery before broadcasting
-      await new Promise(r => setTimeout(r, 400))
-    } catch (e) {
-      console.warn('ephemeral delete join failed', e)
-    }
+  const local = loadLocal(roomId) || { roomId }
+  const tombstone = {
+    ...local,
+    roomId,
+    deleted: true,
+    v: (local.v || 0) + 1,
+    updatedAt: Date.now()
   }
+  // Persist first so any concurrent render / peer-join sees the tombstone.
+  localStorage.setItem(LS_STATE(roomId), JSON.stringify(tombstone))
+  localStorage.removeItem(LS_PIN(roomId))
+
+  // Ensure a home listener is open for this room so the tombstone is
+  // served to both current peers and anyone who joins later.
+  if (!homeListeners.has(roomId)) joinHomeListener(roomId)
+  const handle = homeListeners.get(roomId)
   if (handle) {
-    const local = loadLocal(roomId) || {}
-    const tombstone = {
-      ...local,
-      roomId,
-      deleted: true,
-      v: (local.v || 0) + 1,
-      updatedAt: Date.now()
-    }
+    // Give the listener a moment to learn about existing peers, then
+    // broadcast and wait a bit for delivery ACKs.
+    await new Promise(r => setTimeout(r, 400))
     try { handle.sendState(tombstone) } catch {}
-    // Give peers a window to receive before we tear down
-    await new Promise(r => setTimeout(r, 600))
-    if (ephemeral) { try { handle.room.leave() } catch {} }
-    else leaveHomeListener(roomId)
+    await new Promise(r => setTimeout(r, 800))
   }
 }
 
@@ -523,6 +527,19 @@ function showHome() {
   startHomeListeners()
 }
 
+function showWelcome() {
+  $('[data-role="tabbar"]').classList.add('hidden')
+  $('[data-role="share-btn"]').classList.add('hidden')
+  $('[data-role="room-name"]').textContent = 'Carnage Courts'
+  setConnStatus('offline', 'Welcome')
+  showView('welcome')
+  const input = $('[data-role="welcome-name"]')
+  if (input) {
+    input.value = myName || ''
+    setTimeout(() => input.focus(), 100)
+  }
+}
+
 function showSetup({ fromHome = false } = {}) {
   $('[data-role="tabbar"]').classList.add('hidden')
   $('[data-role="share-btn"]').classList.add('hidden')
@@ -571,14 +588,28 @@ function render() {
 // Home view: enumerates tournaments stored on this device
 // ---------------------------------------------------------------------------
 
+const TOMBSTONE_TTL_MS = 7 * 24 * 3600 * 1000  // garbage-collect after 7 days
+
 function enumerateLocalRooms() {
   const rooms = []
+  const now = Date.now()
+  const keys = []
   for (let i = 0; i < localStorage.length; i++) {
-    const key = localStorage.key(i)
-    if (!key?.startsWith('cc:state:')) continue
+    const k = localStorage.key(i)
+    if (k?.startsWith('cc:state:')) keys.push(k)
+  }
+  for (const key of keys) {
     try {
       const s = JSON.parse(localStorage.getItem(key))
-      if (s?.roomId) rooms.push(s)
+      if (!s?.roomId) continue
+      // Expire stale tombstones — once propagated, the network doesn't
+      // need them around forever, and holding them opens unnecessary
+      // WebRTC connections on every home visit.
+      if (s.deleted && (now - (s.updatedAt || 0)) > TOMBSTONE_TTL_MS) {
+        localStorage.removeItem(key)
+        continue
+      }
+      rooms.push(s)
     } catch {}
   }
   return rooms
@@ -694,7 +725,18 @@ function renderTournamentCard(s, { isPast }) {
 }
 
 function renderHome() {
-  const all = enumerateLocalRooms()
+  // Update greeting
+  const greeting = $('[data-role="home-greeting"]')
+  if (myName) {
+    greeting.classList.remove('hidden')
+    $('[data-role="home-greeting-name"]').textContent = myName
+  } else {
+    greeting.classList.add('hidden')
+  }
+
+  // Hide tombstoned rooms from the UI; they still live in localStorage
+  // so the home listener can keep broadcasting them to new peers.
+  const all = enumerateLocalRooms().filter(s => !s.deleted)
 
   // Split by tournament date — today or future = "Happening Now / Upcoming",
   // strictly before today = "Previous".
@@ -1068,11 +1110,40 @@ function wireSetup() {
   }
 }
 
+function wireWelcome() {
+  $('[data-role="welcome-form"]').onsubmit = (e) => {
+    e.preventDefault()
+    const v = $('[data-role="welcome-name"]').value.trim()
+    if (!v || v.length > 24) { toast('Pick a name (1–24 chars)'); return }
+    myName = v
+    localStorage.setItem('cc:myName', v)
+
+    // If the user arrived via a share URL (state.roomId already set),
+    // auto-register them into that room and show the lobby.
+    if (state.roomId) {
+      if (!state.players.some(p => p.name.toLowerCase() === v.toLowerCase())) {
+        addPlayer(v)
+      }
+      showTab('lobby')
+    } else {
+      showHome()
+    }
+  }
+}
+
 function wireHome() {
   $('[data-role="home-new"]').onclick = () => {
     setupSuffix = randomSuffix()
     updateRoomPreview()
     showSetup({ fromHome: true })
+  }
+
+  $('[data-role="home-change-name"]').onclick = () => {
+    if (!confirm(`Change your identity on this device? You can always claim "${myName}" again by re-entering the same name.`)) return
+    myName = ''
+    localStorage.removeItem('cc:myName')
+    stopAllHomeListeners()
+    showWelcome()
   }
 
   $('[data-role="join-existing"]').onclick = () => {
@@ -1104,9 +1175,10 @@ function wireHome() {
       del.disabled = true
       try {
         await broadcastDelete(rid)
+        // broadcastDelete persists the tombstone in LS; we don't remove
+        // it here (it stays so the home listener keeps serving it to
+        // peers who come online later). renderHome filters it out.
       } finally {
-        localStorage.removeItem(LS_STATE(rid))
-        localStorage.removeItem(LS_PIN(rid))
         renderHome()
       }
       return
@@ -1226,6 +1298,7 @@ function wireShare() {
 // ---------------------------------------------------------------------------
 
 async function boot() {
+  wireWelcome()
   wireSetup()
   wireHome()
   wireLobby()
@@ -1235,27 +1308,31 @@ async function boot() {
   wireBrand()
 
   const urlRoom = getRoomFromURL()
+
+  // Preload local state for the URL'd room so a returning identified user
+  // lands in the lobby without a blank flash, and a first-time visitor
+  // with a share link still gets welcome → auto-join.
   if (urlRoom) {
     const local = loadLocal(urlRoom)
-    if (local) {
-      state = local
-    } else {
-      // Empty shell until a peer sends us state
-      state = initialState()
-      state.roomId = urlRoom
-    }
-    // Normalise URL: upgrade legacy ?room= to ?r=
-    setRoomInURL(urlRoom)
+    if (local) state = local
+    else { state = initialState(); state.roomId = urlRoom }
+    setRoomInURL(urlRoom) // normalise legacy ?room= to ?r=
     joinTrysteroRoom(urlRoom)
-    showTab('lobby')
-    render()
+  }
+
+  // Every user must identify themselves once per device. The name seeds
+  // the claim-slot logic that keeps multi-device usage coherent.
+  if (!myName) {
+    showWelcome()
     return
   }
 
-  // No room in URL — always show home. A fresh device might be a player
-  // trying to join an existing tournament via "Join by room ID", not a
-  // creator. The empty state has the join button right there.
-  showHome()
+  if (urlRoom) {
+    showTab('lobby')
+    render()
+  } else {
+    showHome()
+  }
 }
 
 boot()
