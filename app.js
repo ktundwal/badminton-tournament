@@ -17,6 +17,7 @@ import {
   isConfigured as cloudConfigured,
   getRoomState,
   getRoomStates,
+  listAllRoomIds,
   setRoomState,
   subscribeToRoom
 } from './lib/cloudsync.mjs'
@@ -185,23 +186,35 @@ async function broadcastDelete(roomId) {
   await setRoomState(roomId, tombstone)
 }
 
-// On home view, pull the latest state of every locally-known room so
-// the card list reflects any updates made on other devices while this
-// one was offline. Idempotent; safe to call on every home render.
+// On home view, discover every tournament the cloud knows about — not
+// just ones this device has engaged with. A fresh browser logging in
+// should see today's tournaments and be able to join them without
+// someone manually handing over a share link. This is the whole point
+// of moving to a central store.
+//
+// New rooms get cached to localStorage so subsequent visits load fast
+// and render offline. Rooms that are deleted in the cloud are also
+// adopted locally; brand-new tombstones we've never seen before are
+// skipped so we don't clutter fresh devices with old history.
 async function syncAllRoomsFromCloud() {
   if (!cloudConfigured()) return
-  const local = enumerateLocalRooms()
-  if (!local.length) return
-  const states = await getRoomStates(local.map(s => s.roomId))
+  const cloudIds = await listAllRoomIds()
+  const localIds = enumerateLocalRooms().map(s => s.roomId)
+  const allIds = [...new Set([...cloudIds, ...localIds])]
+  if (!allIds.length) return
+  const states = await getRoomStates(allIds)
   let changed = false
-  for (const rid in states) {
+  for (const rid of allIds) {
     const remote = states[rid]
     if (!remote) continue
     const cur = loadLocal(rid)
-    if (!cur || (remote.v || 0) > (cur.v || 0)) {
-      localStorage.setItem(LS_STATE(rid), JSON.stringify(remote))
-      changed = true
-    }
+    const remoteNewer = !cur || (remote.v || 0) > (cur.v || 0)
+    if (!remoteNewer) continue
+    // Skip tombstones we've never seen before — don't pollute a fresh
+    // device's list with ancient deletes.
+    if (remote.deleted && !cur) continue
+    localStorage.setItem(LS_STATE(rid), JSON.stringify(remote))
+    changed = true
   }
   if (changed && !state.roomId) renderHome()
 }
@@ -487,8 +500,8 @@ function showSetup({ fromHome = false } = {}) {
 function setConnStatus(kind, label) {
   const dot = $('[data-role="conn-dot"]')
   const lab = $('[data-role="conn-label"]')
-  dot.classList.remove('bg-sub', 'bg-volt', 'bg-amber', 'bg-danger', 'pulse-dot')
-  if (kind === 'online')     { dot.classList.add('bg-volt', 'pulse-dot') }
+  dot.classList.remove('bg-sub', 'bg-volt', 'bg-court', 'bg-amber', 'bg-danger', 'pulse-dot')
+  if (kind === 'online')     { dot.classList.add('bg-court', 'pulse-dot') }
   else if (kind === 'connecting') { dot.classList.add('bg-amber') }
   else                        { dot.classList.add('bg-sub') }
   lab.textContent = label
@@ -602,7 +615,7 @@ function renderTournamentCard(s, { isPast }) {
   const statusLabel = s.status === 'finished' ? 'Finished'
     : (s.status === 'in_progress' ? 'In progress' : 'Lobby')
   const statusColor = s.status === 'finished' ? 'text-amber'
-    : (s.status === 'in_progress' ? 'text-volt' : 'text-sub')
+    : (s.status === 'in_progress' ? 'text-court' : 'text-sub')
 
   const signedUpNames = (s.players || []).map(p => p.name)
   const signedUpPreview = signedUpNames.slice(0, 4).join(', ') +
@@ -643,7 +656,7 @@ function renderTournamentCard(s, { isPast }) {
         ${dateStr ? escapeHtml(dateStr) + ' · ' : ''}${players} signed up${playedCount ? ` · ${playedCount} played` : ''}${totalMatches ? ` · ${doneMatches}/${totalMatches} matches` : ''}
       </div>
       ${signedUpPreview ? `<div class="text-xs text-sub mt-1 truncate">👥 ${escapeHtml(signedUpPreview)}</div>` : ''}
-      ${leader ? `<div class="text-xs text-volt mt-0.5 truncate">🏆 ${escapeHtml(leader)}</div>` : ''}
+      ${leader ? `<div class="text-xs text-amber mt-0.5 truncate">🏆 ${escapeHtml(leader)}</div>` : ''}
     </div>
     <div class="flex flex-col gap-1 shrink-0">
       <span class="bg-volt text-bg text-xs font-bold px-3 py-2 rounded-lg text-center pointer-events-none">${primaryActionLabel}</span>
@@ -847,7 +860,7 @@ function renderMatchCard(m, teamById) {
       <div class="text-xs uppercase tracking-widest text-sub font-semibold">
         Court ${m.court}${m.wave > 1 ? ` · Wave ${m.wave}` : ''}
       </div>
-      <div class="text-xs ${m.done ? 'text-volt' : 'text-sub'} font-semibold uppercase tracking-widest">
+      <div class="text-xs ${m.done ? 'text-court' : 'text-sub'} font-semibold uppercase tracking-widest">
         ${m.done ? 'Final' : 'Pending'}
       </div>
     </div>
@@ -941,7 +954,7 @@ function renderLeaderboard() {
       </div>
       <div class="text-right">
         <div class="font-mono text-lg font-bold">${s.wins}<span class="text-sub text-sm font-normal">–${s.losses}</span></div>
-        <div class="text-xs font-mono ${diff > 0 ? 'text-volt' : diff < 0 ? 'text-danger' : 'text-sub'}">${diffStr}</div>
+        <div class="text-xs font-mono ${diff > 0 ? 'text-court' : diff < 0 ? 'text-danger' : 'text-sub'}">${diffStr}</div>
       </div>
     `
     list.appendChild(li)

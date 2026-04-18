@@ -13,19 +13,27 @@
       theme: {
         extend: {
           colors: {
-            bg:      '#0a0a0a',
-            panel:   '#141414',
-            panel2:  '#1c1c1c',
-            line:    '#2a2a2a',
-            ink:     '#f5f5f5',
-            sub:     '#9ca3af',
-            danger:  '#ef2b4b',
-            volt:    '#00ff88',
-            amber:   '#ffb020'
+            // BWF-inspired palette. Primary brand colour is BWF red (#DF2027,
+            // extracted from their menu stylesheet + logo fill), on deep navy
+            // surfaces. Court green is reserved for positive status signals
+            // (online, winner, completed) — never a call-to-action.
+            bg:      '#0a0f1d',   // deep navy, almost black
+            panel:   '#121a2e',   // elevated surface
+            panel2:  '#1a2340',   // secondary surface
+            line:    '#273355',   // borders / dividers
+            ink:     '#f8fafc',
+            sub:     '#94a3b8',
+            volt:    '#df2027',   // BWF primary red (CTAs, accents, identity)
+            danger:  '#d7141c',   // BWF logo red (destructive hover / text)
+            court:   '#00af6f',   // BWF secondary green (live, winner, online)
+            amber:   '#ffb020',   // Gold for rank-1 / trophy / finished
+            navy:    '#1d4559'    // BWF navy accent
           },
           fontFamily: {
-            display: ['"Space Grotesk"', 'system-ui', 'sans-serif'],
-            body:    ['Inter', 'system-ui', 'sans-serif'],
+            // BWF uses Roboto throughout their digital presence; pairing it
+            // with Space Grotesk for display keeps a geometric, broadcast feel.
+            display: ['"Space Grotesk"', 'Roboto', 'system-ui', 'sans-serif'],
+            body:    ['Roboto', 'system-ui', 'sans-serif'],
             mono:    ['"JetBrains Mono"', 'ui-monospace', 'monospace']
           }
         }
@@ -34,7 +42,7 @@
   </script>
   <link rel="preconnect" href="https://fonts.googleapis.com" />
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
-  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=Space+Grotesk:wght@500;700&family=JetBrains+Mono:wght@500&display=swap" rel="stylesheet" />
+  <link href="https://fonts.googleapis.com/css2?family=Roboto:wght@400;500;700;900&family=Space+Grotesk:wght@500;700&family=JetBrains+Mono:wght@500&display=swap" rel="stylesheet" />
   <link rel="stylesheet" href="styles.css" />
 </head>
 <body class="bg-bg text-ink font-body min-h-dvh flex flex-col overflow-x-hidden">
@@ -97,13 +105,13 @@
           <h2 class="font-display text-3xl font-bold tracking-tight">Carnage Courts</h2>
           <p class="text-sub mt-1 text-sm">Peer-to-peer. No signup. Bring the shuttle.</p>
           <p data-role="home-greeting" class="hidden text-sm mt-3">
-            Signed in as <span class="text-volt font-semibold" data-role="home-greeting-name"></span>
+            Signed in as <span class="text-court font-semibold" data-role="home-greeting-name"></span>
             <button type="button" data-role="home-change-name" class="text-xs text-sub underline ml-1 active:text-ink">not you?</button>
           </p>
         </div>
 
         <div data-role="home-today" class="hidden space-y-2">
-          <h3 class="font-display text-xs uppercase tracking-widest text-volt px-1">Happening Now / Upcoming</h3>
+          <h3 class="font-display text-xs uppercase tracking-widest text-court px-1">Happening Now / Upcoming</h3>
           <ul data-role="home-today-list" class="space-y-2"></ul>
         </div>
 
@@ -184,10 +192,10 @@
           </div>
 
           <div data-role="me-signed-up"
-               class="hidden items-center justify-between bg-panel2 border border-volt/40 rounded-xl p-3 mb-4 gap-2">
+               class="hidden items-center justify-between bg-panel2 border border-court/40 rounded-xl p-3 mb-4 gap-2">
             <div class="flex items-center gap-2 text-sm min-w-0">
-              <span class="text-volt shrink-0">✓</span>
-              <span class="truncate">Signed up as <span class="text-volt font-semibold" data-role="me-name"></span></span>
+              <span class="text-court shrink-0">✓</span>
+              <span class="truncate">Signed up as <span class="text-court font-semibold" data-role="me-name"></span></span>
             </div>
             <button type="button" data-role="add-someone-else"
                     class="shrink-0 text-xs text-sub underline active:text-ink">
