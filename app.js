@@ -537,7 +537,12 @@ function renderTournamentCard(s, { isPast }) {
   else if (dDelta === 1) dateStr = 'Tomorrow'
   else if (dDelta === -1) dateStr = 'Yesterday'
 
-  const primaryActionLabel = isPast ? 'View' : (s.status === 'lobby' ? 'Sign up' : 'Play')
+  const meSignedUp = myName && (s.players || []).some(p => p.name.toLowerCase() === myName.toLowerCase())
+  const primaryActionLabel = isPast
+    ? 'View'
+    : (meSignedUp
+        ? (s.status === 'in_progress' ? 'Play' : 'Open')
+        : (s.status === 'lobby' ? 'Sign up' : 'Watch'))
 
   li.innerHTML = `
     <div class="flex-1 min-w-0">
@@ -932,10 +937,21 @@ function wireHome() {
   }
 
   $('[data-role="join-existing"]').onclick = () => {
-    const entered = prompt('Enter existing room ID (e.g., sat18apr-qz):')
-    if (entered) {
-      setRoomInURL(entered.trim())
+    const entered = prompt('Paste the tournament URL or room ID:')
+    if (!entered) return
+    // Accept either a room ID (e.g., sat18apr-qz) or a full share URL;
+    // parse out ?r= or ?room= if present, otherwise use verbatim.
+    let roomId = entered.trim()
+    try {
+      const u = new URL(entered)
+      roomId = u.searchParams.get('r') || u.searchParams.get('room') || roomId
+    } catch {}
+    roomId = roomId.trim()
+    if (roomId.length >= 3) {
+      setRoomInURL(roomId)
       location.reload()
+    } else {
+      toast('That doesn\'t look like a room ID.')
     }
   }
 
@@ -1078,13 +1094,10 @@ async function boot() {
     return
   }
 
-  // No room in URL — show home or setup depending on whether there's history
-  const existing = enumerateLocalRooms()
-  if (existing.length === 0) {
-    showSetup({ fromHome: false })
-  } else {
-    showHome()
-  }
+  // No room in URL — always show home. A fresh device might be a player
+  // trying to join an existing tournament via "Join by room ID", not a
+  // creator. The empty state has the join button right there.
+  showHome()
 }
 
 boot()

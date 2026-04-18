@@ -85,17 +85,17 @@
 
         <div data-role="home-empty" class="hidden bg-panel border border-line rounded-2xl p-6 text-center">
           <p class="text-sub text-sm">No tournaments on this device yet.</p>
-          <p class="text-sub text-xs mt-1">Create one below, or ask an organizer for a share link.</p>
+          <p class="text-sub text-xs mt-1">Create a new one, or paste a share link from an organizer.</p>
         </div>
 
-        <button type="button" data-role="home-new"
-                class="w-full bg-volt text-bg font-display font-bold text-lg py-4 rounded-xl active:scale-[0.98] transition">
-          + New Tournament
-        </button>
-
-        <div class="text-center">
-          <button type="button" data-role="join-existing" class="text-xs text-sub underline">
-            Join by room ID
+        <div class="grid grid-cols-1 gap-2">
+          <button type="button" data-role="home-new"
+                  class="w-full bg-volt text-bg font-display font-bold text-lg py-4 rounded-xl active:scale-[0.98] transition">
+            + New Tournament
+          </button>
+          <button type="button" data-role="join-existing"
+                  class="w-full bg-panel2 border border-line text-ink font-display font-semibold py-3 rounded-xl active:scale-[0.98] transition">
+            📋 Paste share link
           </button>
         </div>
       </section>
