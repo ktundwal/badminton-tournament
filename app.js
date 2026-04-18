@@ -100,6 +100,10 @@ function loadLocal(roomId) {
 // ---------------------------------------------------------------------------
 
 function joinTrysteroRoom(roomId) {
+  // Entering a specific tournament — tear down the home-page listeners,
+  // the tournament's own room connection handles sync for this room, and
+  // keeping extra connections open is wasteful.
+  stopAllHomeListeners()
   if (roomHandle) {
     roomHandle.leave()
     roomHandle = null
@@ -120,6 +124,21 @@ function joinTrysteroRoom(roomId) {
 
   getStateAction((remote, peerId) => {
     if (!remote || typeof remote.v !== 'number') return
+    // Deletion tombstone: a peer deleted this tournament. Honor it —
+    // wipe our local copy and bounce back to the home page.
+    if (remote.deleted && remote.roomId === state.roomId) {
+      localStorage.removeItem(LS_STATE(state.roomId))
+      localStorage.removeItem(LS_PIN(state.roomId))
+      try { roomHandle?.leave() } catch {}
+      roomHandle = null
+      sendStateAction = null
+      getStateAction = null
+      state = initialState()
+      clearRoomFromURL()
+      toast('Tournament deleted by admin')
+      showHome()
+      return
+    }
     if (remote.v > state.v) {
       state = remote
       saveLocal()
@@ -152,6 +171,102 @@ function joinTrysteroRoom(roomId) {
 function broadcastState() {
   if (sendStateAction) {
     try { sendStateAction(state) } catch (e) { console.warn('broadcast failed', e) }
+  }
+}
+
+// ---------------------------------------------------------------------------
+// Passive home listeners — while on the home view, open a WebRTC channel
+// to each tournament this device knows about so that updates (including
+// delete tombstones) propagate live to the roster we're looking at.
+// Torn down when the user enters a specific tournament.
+// ---------------------------------------------------------------------------
+
+const homeListeners = new Map()  // roomId -> { room, sendState }
+
+function joinHomeListener(roomId) {
+  if (homeListeners.has(roomId)) return
+  let room
+  try {
+    room = joinRoom({ appId: APP_ID }, roomId)
+  } catch (e) {
+    console.warn('home listener join failed', roomId, e)
+    return
+  }
+  const [sendState, getState] = room.makeAction('state')
+
+  getState((remote /* , peerId */) => {
+    if (!remote || typeof remote.v !== 'number') return
+    if (remote.roomId && remote.roomId !== roomId) return
+    const local = loadLocal(roomId)
+    if (remote.deleted) {
+      localStorage.removeItem(LS_STATE(roomId))
+      localStorage.removeItem(LS_PIN(roomId))
+      leaveHomeListener(roomId)
+      if (!state.roomId) renderHome()
+      return
+    }
+    if ((remote.v || 0) > (local?.v || 0)) {
+      localStorage.setItem(LS_STATE(roomId), JSON.stringify(remote))
+      if (!state.roomId) renderHome()
+    }
+  })
+
+  room.onPeerJoin(peerId => {
+    const local = loadLocal(roomId)
+    if (local) { try { sendState(local, peerId) } catch {} }
+  })
+
+  homeListeners.set(roomId, { room, sendState })
+}
+
+function leaveHomeListener(roomId) {
+  const h = homeListeners.get(roomId)
+  if (!h) return
+  try { h.room.leave() } catch {}
+  homeListeners.delete(roomId)
+}
+
+function startHomeListeners() {
+  const rooms = enumerateLocalRooms()
+  for (const s of rooms) joinHomeListener(s.roomId)
+}
+
+function stopAllHomeListeners() {
+  for (const rid of [...homeListeners.keys()]) leaveHomeListener(rid)
+}
+
+// Broadcast a tombstone for a room this device is about to delete, then
+// remove our own local copy. If no peer is online at the moment, the
+// tombstone is lost — that's OK; local delete still happens.
+async function broadcastDelete(roomId) {
+  let handle = homeListeners.get(roomId)
+  let ephemeral = false
+  if (!handle) {
+    try {
+      const room = joinRoom({ appId: APP_ID }, roomId)
+      const [sendState] = room.makeAction('state')
+      handle = { room, sendState }
+      ephemeral = true
+      // Wait a moment for peer discovery before broadcasting
+      await new Promise(r => setTimeout(r, 400))
+    } catch (e) {
+      console.warn('ephemeral delete join failed', e)
+    }
+  }
+  if (handle) {
+    const local = loadLocal(roomId) || {}
+    const tombstone = {
+      ...local,
+      roomId,
+      deleted: true,
+      v: (local.v || 0) + 1,
+      updatedAt: Date.now()
+    }
+    try { handle.sendState(tombstone) } catch {}
+    // Give peers a window to receive before we tear down
+    await new Promise(r => setTimeout(r, 600))
+    if (ephemeral) { try { handle.room.leave() } catch {} }
+    else leaveHomeListener(roomId)
   }
 }
 
@@ -193,25 +308,34 @@ async function createRoom({ roomName, pin, tournamentDate }) {
   render()
 }
 
-function addPlayer(name) {
+function addPlayer(name, isSelf = true) {
   name = name.trim()
   if (!name) return
-  // Trust model: if someone types a name already in the roster, they're
-  // claiming their existing slot from another device — not creating a
-  // duplicate. Use the canonical casing from the existing entry.
+  // Trust model: if someone types a name already in the roster, and this
+  // is a self-registration, treat it as claiming their existing slot from
+  // another device. For "add someone else" the claim path just toasts.
   const existing = state.players.find(p => p.name.toLowerCase() === name.toLowerCase())
   if (existing) {
-    myName = existing.name
-    localStorage.setItem('cc:myName', myName)
-    toast(`Welcome back, ${myName}`)
+    if (isSelf) {
+      myName = existing.name
+      localStorage.setItem('cc:myName', myName)
+      toast(`Welcome back, ${myName}`)
+    } else {
+      toast(`${existing.name} is already in`)
+    }
     render()
     return
+  }
+  // Bind this device's identity BEFORE mutate() — mutate() calls render()
+  // synchronously, so myName must already be set for the lobby banner to
+  // appear on the same render cycle.
+  if (isSelf) {
+    myName = name
+    localStorage.setItem('cc:myName', name)
   }
   mutate(s => {
     s.players.push({ id: uid(), name, joinedAt: Date.now() })
   })
-  myName = name
-  localStorage.setItem('cc:myName', name)
 }
 
 function removePlayer(id) {
@@ -394,6 +518,9 @@ function showHome() {
   setConnStatus('offline', 'Home')
   renderHome()
   showView('home')
+  // Listen for state updates (incl. delete tombstones) on every local
+  // tournament while the user is on the home page.
+  startHomeListeners()
 }
 
 function showSetup({ fromHome = false } = {}) {
@@ -645,12 +772,24 @@ function renderLobby() {
   }
   $('[data-role="player-count"]').textContent = state.players.length
 
-  // Pre-fill the add-player input with the remembered name so the user
-  // just taps Add — no retyping across tournaments.
+  // If the user is already registered on this device, collapse the
+  // add-player form into a "Signed up as X" banner. Otherwise, show the
+  // form with the remembered name pre-filled so they just tap Add.
   const nameInput = $('[data-role="add-player-name"]')
+  const form = $('[data-role="add-player-form"]')
+  const banner = $('[data-role="me-signed-up"]')
   const alreadyInRoom = myName && state.players.some(p => p.name.toLowerCase() === myName.toLowerCase())
-  if (nameInput && !nameInput.value && myName && !alreadyInRoom) {
-    nameInput.value = myName
+  if (alreadyInRoom) {
+    form.classList.add('hidden')
+    banner.classList.remove('hidden')
+    banner.classList.add('flex')
+    $('[data-role="me-name"]').textContent = myName
+    nameInput.value = ''
+  } else {
+    form.classList.remove('hidden')
+    banner.classList.add('hidden')
+    banner.classList.remove('flex')
+    if (nameInput && !nameInput.value && myName) nameInput.value = myName
   }
 
   // Randomize button gating
@@ -956,15 +1095,20 @@ function wireHome() {
   }
 
   // Delegated click for resume + delete on tournament cards
-  const onCardClick = (e) => {
+  const onCardClick = async (e) => {
     const del = e.target.closest('[data-delete-room]')
     if (del) {
       e.stopPropagation()
       const rid = del.dataset.deleteRoom
-      if (!confirm(`Remove "${rid}" from this device? Others in the room still have it; you can rejoin via the URL.`)) return
-      localStorage.removeItem(LS_STATE(rid))
-      localStorage.removeItem(LS_PIN(rid))
-      renderHome()
+      if (!confirm(`Delete "${rid}"? This will try to remove it from everyone's device in the room.`)) return
+      del.disabled = true
+      try {
+        await broadcastDelete(rid)
+      } finally {
+        localStorage.removeItem(LS_STATE(rid))
+        localStorage.removeItem(LS_PIN(rid))
+        renderHome()
+      }
       return
     }
     const card = e.target.closest('[data-resume-room]')
@@ -996,8 +1140,22 @@ function wireLobby() {
     const input = $('[data-role="add-player-name"]')
     const v = input.value
     if (!v.trim()) return
-    addPlayer(v)
+    // If this device's user is already in the roster, this submission
+    // must be "add someone else" — don't reassign myName.
+    const isSelf = !(myName && state.players.some(p => p.name.toLowerCase() === myName.toLowerCase()))
+    addPlayer(v, isSelf)
     input.value = ''
+  }
+
+  $('[data-role="add-someone-else"]').onclick = () => {
+    const form = $('[data-role="add-player-form"]')
+    const banner = $('[data-role="me-signed-up"]')
+    form.classList.remove('hidden')
+    banner.classList.add('hidden')
+    banner.classList.remove('flex')
+    const input = $('[data-role="add-player-name"]')
+    input.value = ''
+    input.focus()
   }
 
   $('[data-role="randomize-teams"]').onclick = async () => {

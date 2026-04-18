@@ -154,11 +154,23 @@
             <span class="text-sm text-sub"><span data-role="player-count">0</span> signed up</span>
           </div>
 
+          <div data-role="me-signed-up"
+               class="hidden items-center justify-between bg-panel2 border border-volt/40 rounded-xl p-3 mb-4 gap-2">
+            <div class="flex items-center gap-2 text-sm min-w-0">
+              <span class="text-volt shrink-0">✓</span>
+              <span class="truncate">Signed up as <span class="text-volt font-semibold" data-role="me-name"></span></span>
+            </div>
+            <button type="button" data-role="add-someone-else"
+                    class="shrink-0 text-xs text-sub underline active:text-ink">
+              Add someone else
+            </button>
+          </div>
+
           <form data-role="add-player-form" class="flex gap-2 mb-4">
             <input data-role="add-player-name"
-                   aria-label="Your name"
+                   aria-label="Player name"
                    class="flex-1 bg-panel2 border border-line rounded-xl px-4 py-3 text-base focus:outline-none focus:border-volt"
-                   placeholder="Your name"
+                   placeholder="Name"
                    autocomplete="off" maxlength="24" />
             <button type="submit"
                     class="shrink-0 bg-volt text-bg font-bold px-5 rounded-xl active:scale-95 transition">
