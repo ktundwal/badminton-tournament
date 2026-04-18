@@ -12,11 +12,20 @@ A zero-signup, zero-backend, peer-to-peer badminton tournament engine for your S
 
 ## How it works
 
-1. One person opens the app and **creates a room** with a room name + a 2-digit admin PIN.
-2. They share the URL (or room name) with everyone playing.
-3. Players open the link on their phones and **add their names**.
+1. One person opens the app and **creates a room** by picking a **tournament date** from a calendar + a 2-digit admin PIN. The room ID is auto-generated as `sat18apr-xx` (day + date + month + 2-char random suffix).
+2. They share the URL with everyone playing — short form: `https://ktundwal.github.io/bt/?r=sat18apr-xx`.
+3. Players open the link on their phones and **add their names**. If someone registers on their phone and later opens the link on their iPad, typing the same name claims their existing slot (no duplicates).
 4. Admin hits **Randomize Teams** — pairs are shuffled, given ridiculous names, and a full round-robin schedule is generated across however many courts are available.
-5. As games finish, anyone with the PIN **logs the score**. The leaderboard updates live on every phone in real time.
+5. As games finish, **anyone** playing can log the score — scoring is open so the organizer doesn't become a bottleneck. The leaderboard updates live on every phone in real time.
+
+### Landing page
+
+Going to the root URL (`https://ktundwal.github.io/bt/`) shows all tournaments stored on that device:
+
+- **Happening Now / Upcoming**: today's and future tournaments. Tap to sign up / play.
+- **Previous**: past tournaments. Tap to view standings.
+- **+ New Tournament**: create a new one via the date picker.
+- **🗑**: remove a tournament from this device (still exists for others in the room until they remove it too).
 
 ### Scoring rules
 - First to 21, **win by 1** (21–20 is a valid win).
@@ -58,9 +67,16 @@ npx serve .
 
 ## Deploy to GitHub Pages ($0)
 
-1. Push this repo to GitHub (e.g., `github.com/you/carnage-courts`).
-2. Repo **Settings → Pages**: set source to `Deploy from a branch`, branch `main` / `root`.
-3. Done. In ~60 seconds your app is live at `https://you.github.io/carnage-courts/`.
+This repo ships a GitHub Actions workflow (`.github/workflows/ci.yml`) that:
+
+1. On every PR / push: runs `node --check` on all JS, unit tests (`node --test`), and a static HTML sanity check.
+2. On push to `main`: builds a Pages artifact and deploys via `actions/deploy-pages`.
+
+To fork and deploy:
+
+1. Fork the repo.
+2. Repo **Settings → Pages**: set source to **GitHub Actions**.
+3. Push to `main`. In ~60 seconds your app is live at `https://<you>.github.io/<repo>/`.
 
 The included `.nojekyll` file ensures GitHub doesn't try to process anything — the files ship as-is.
 
@@ -87,12 +103,17 @@ If you need bulletproof sync across any network, you can plug in a tiny paid TUR
 ## Project layout
 
 ```
-index.html      # Markup, Tailwind config inline
-styles.css      # A few custom styles on top of Tailwind
-app.js          # Single-file app: state, mutations, P2P sync, rendering
+index.html                    # Markup, Tailwind config inline
+styles.css                    # A few custom styles on top of Tailwind
+app.js                        # State, mutations, P2P sync, rendering
+lib/scheduler.mjs             # Round-robin, seeded RNG, team-name generator
+lib/scoring.mjs               # Score validation (first-to-21, win-by-1)
+tests/                        # node:test unit tests
+scripts/check-html.mjs        # Static sanity check for data-role refs
+.github/workflows/ci.yml      # Test + deploy pipeline
 README.md
-LICENSE         # MIT
-.nojekyll       # Tells GitHub Pages not to touch anything
+LICENSE                       # MIT
+.nojekyll                     # Tells GitHub Pages not to touch anything
 ```
 
 No bundler. No `node_modules`. No package.json. Two libraries load from CDN:

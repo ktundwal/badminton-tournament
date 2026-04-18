@@ -6,7 +6,8 @@ import {
   generateTeamName,
   mulberry32,
   hashString,
-  shuffled
+  shuffled,
+  toDateInputValue
 } from '../lib/scheduler.mjs'
 
 // Deterministic uid factory for tests
@@ -103,11 +104,26 @@ test('buildSchedule: rejects invalid court counts', () => {
   assert.throws(() => buildSchedule(mkTeams(4), 1.5, makeUid()))
 })
 
-test('generateRoomName: deterministic for a given timestamp seed', () => {
-  const a = generateRoomName(123456)
-  const b = generateRoomName(123456)
-  assert.equal(a, b)
-  assert.match(a, /^[A-Z][a-z]+-[A-Z][a-z-]+-\d{2}$/)
+test('generateRoomName: date-based format with 2-char suffix', () => {
+  // Saturday, April 18, 2026 (a known Saturday)
+  const d = new Date(2026, 3, 18)
+  const name = generateRoomName(d, 'qz')
+  assert.equal(name, 'sat18apr-qz')
+})
+
+test('generateRoomName: same date + explicit suffix is deterministic', () => {
+  const d = new Date(2026, 0, 1)
+  assert.equal(generateRoomName(d, 'ab'), generateRoomName(d, 'ab'))
+})
+
+test('generateRoomName: random suffix is 2 chars [a-z0-9]', () => {
+  const name = generateRoomName(new Date())
+  assert.match(name, /^[a-z]{3}\d{1,2}[a-z]{3}-[a-z0-9]{2}$/)
+})
+
+test('toDateInputValue: formats local date as YYYY-MM-DD', () => {
+  assert.equal(toDateInputValue(new Date(2026, 3, 18)), '2026-04-18')
+  assert.equal(toDateInputValue(new Date(2026, 0, 5)), '2026-01-05')
 })
 
 test('generateTeamName: stable across player-id order', () => {

@@ -9,7 +9,13 @@
 // connections to general-purpose relay servers, so it passes through
 // restrictive networks that block BitTorrent traffic.
 import { joinRoom, selfId } from 'https://cdn.jsdelivr.net/npm/@trystero-p2p/nostr@0.23.0/+esm'
-import { buildSchedule, generateRoomName, generateTeamName, shuffled } from './lib/scheduler.mjs'
+import {
+  buildSchedule,
+  generateRoomName,
+  generateTeamName,
+  shuffled,
+  toDateInputValue
+} from './lib/scheduler.mjs'
 import { validateScore } from './lib/scoring.mjs'
 
 // ---------------------------------------------------------------------------
@@ -46,6 +52,7 @@ const initialState = () => ({
   schemaVersion: STATE_VERSION,
   createdAt: null,
   updatedAt: null,
+  tournamentDate: null,      // ISO YYYY-MM-DD; the day the event happens
   roomId: null,
   pinHash: null,
   pinSalt: null,
@@ -163,7 +170,7 @@ function mutate(fn) {
   render()
 }
 
-async function createRoom({ roomName, pin }) {
+async function createRoom({ roomName, pin, tournamentDate }) {
   const salt = uid()
   const pinHash = await sha256(pin + ':' + roomName + ':' + salt)
   state = initialState()
@@ -172,6 +179,7 @@ async function createRoom({ roomName, pin }) {
   state.pinSalt = salt
   state.createdAt = Date.now()
   state.updatedAt = state.createdAt
+  state.tournamentDate = tournamentDate || toDateInputValue(new Date())
   state.v = 1
   localStorage.setItem(LS_PIN(roomName), pin)  // creator device caches PIN
   saveLocal()
@@ -374,6 +382,24 @@ function showTab(tab) {
   $$('.tab-btn').forEach(b => b.classList.toggle('active', b.dataset.tab === tab))
 }
 
+function showHome() {
+  $('[data-role="tabbar"]').classList.add('hidden')
+  $('[data-role="share-btn"]').classList.add('hidden')
+  $('[data-role="room-name"]').textContent = 'Carnage Courts'
+  setConnStatus('offline', 'Home')
+  renderHome()
+  showView('home')
+}
+
+function showSetup({ fromHome = false } = {}) {
+  $('[data-role="tabbar"]').classList.add('hidden')
+  $('[data-role="share-btn"]').classList.add('hidden')
+  $('[data-role="room-name"]').textContent = 'New Tournament'
+  const backBtn = $('[data-role="setup-back"]')
+  backBtn.classList.toggle('hidden', !fromHome)
+  showView('setup')
+}
+
 function setConnStatus(kind, label) {
   const dot = $('[data-role="conn-dot"]')
   const lab = $('[data-role="conn-label"]')
@@ -390,10 +416,7 @@ function updatePeerCount() {
 
 function render() {
   if (!state.roomId) {
-    showView('setup')
-    $('[data-role="tabbar"]').classList.add('hidden')
-    $('[data-role="share-btn"]').classList.add('hidden')
-    $('[data-role="room-name"]').textContent = 'Carnage Courts'
+    // Home/setup is handled separately via showHome()/showSetup().
     return
   }
 
@@ -405,10 +428,176 @@ function render() {
   renderMatches()
   renderLeaderboard()
 
-  // If we landed on setup view but have a room now, switch to lobby
-  const anyVisible = $$('[data-view]').some(el => !el.classList.contains('hidden'))
-  if (!anyVisible || $('[data-view="setup"]').offsetParent !== null) {
-    showTab(currentTab || 'lobby')
+  // If we landed on setup/home but have a room now, switch to lobby
+  const inRoomView = ['lobby', 'matches', 'leaderboard'].some(
+    v => !$(`[data-view="${v}"]`).classList.contains('hidden')
+  )
+  if (!inRoomView) showTab(currentTab || 'lobby')
+}
+
+// ---------------------------------------------------------------------------
+// Home view: enumerates tournaments stored on this device
+// ---------------------------------------------------------------------------
+
+function enumerateLocalRooms() {
+  const rooms = []
+  for (let i = 0; i < localStorage.length; i++) {
+    const key = localStorage.key(i)
+    if (!key?.startsWith('cc:state:')) continue
+    try {
+      const s = JSON.parse(localStorage.getItem(key))
+      if (s?.roomId) rooms.push(s)
+    } catch {}
+  }
+  return rooms
+}
+
+function parseISODateLocal(iso) {
+  if (!iso) return null
+  const [y, m, d] = iso.split('-').map(Number)
+  return new Date(y, m - 1, d)
+}
+
+function tournamentDateOf(s) {
+  // Prefer explicit tournamentDate; fall back to createdAt for legacy rooms
+  if (s.tournamentDate) return parseISODateLocal(s.tournamentDate)
+  if (s.createdAt) return new Date(s.createdAt)
+  return null
+}
+
+function startOfDay(d) {
+  return new Date(d.getFullYear(), d.getMonth(), d.getDate())
+}
+
+function daysFromToday(date) {
+  if (!date) return null
+  const today = startOfDay(new Date())
+  const d = startOfDay(date)
+  return Math.round((d - today) / 86400000)
+}
+
+function formatCardDate(date) {
+  if (!date) return ''
+  return date.toLocaleDateString(undefined, { weekday: 'short', month: 'short', day: 'numeric' })
+}
+
+function computeLeader(s) {
+  if (!s.teams || !s.matches?.length) return null
+  const done = s.matches.filter(m => m.done)
+  if (!done.length) return null
+  const stats = new Map(s.teams.map(t => [t.id, { team: t, wins: 0, diff: 0 }]))
+  for (const m of done) {
+    const a = stats.get(m.teamAId), b = stats.get(m.teamBId)
+    if (!a || !b) continue
+    a.diff += (m.scoreA - m.scoreB); b.diff += (m.scoreB - m.scoreA)
+    if (m.scoreA > m.scoreB) a.wins++; else b.wins++
+  }
+  const sorted = [...stats.values()].sort((x, y) => y.wins - x.wins || y.diff - x.diff)
+  return sorted[0]?.team?.name
+}
+
+function renderTournamentCard(s, { isPast }) {
+  const li = document.createElement('li')
+  li.className = `bg-panel border border-line rounded-2xl p-4 flex items-center gap-3 ${isPast ? 'opacity-80' : ''}`
+  li.dataset.resumeRoom = s.roomId
+  li.style.cursor = 'pointer'
+
+  const players = s.players?.length || 0
+  const totalMatches = s.matches?.length || 0
+  const doneMatches = s.matches?.filter(m => m.done).length || 0
+  const statusLabel = s.status === 'finished' ? 'Finished'
+    : (s.status === 'in_progress' ? 'In progress' : 'Lobby')
+  const statusColor = s.status === 'finished' ? 'text-amber'
+    : (s.status === 'in_progress' ? 'text-volt' : 'text-sub')
+
+  const signedUpNames = (s.players || []).map(p => p.name)
+  const signedUpPreview = signedUpNames.slice(0, 4).join(', ') +
+    (signedUpNames.length > 4 ? ` +${signedUpNames.length - 4}` : '')
+
+  // "Played" = players who appear in at least one completed match
+  const playedIds = new Set()
+  for (const m of (s.matches || [])) {
+    if (!m.done) continue
+    const a = s.teams?.find(t => t.id === m.teamAId)
+    const b = s.teams?.find(t => t.id === m.teamBId)
+    for (const pid of [...(a?.playerIds || []), ...(b?.playerIds || [])]) playedIds.add(pid)
+  }
+  const playedCount = playedIds.size
+
+  const leader = computeLeader(s)
+  const tDate = tournamentDateOf(s)
+  const dDelta = daysFromToday(tDate)
+  let dateStr = formatCardDate(tDate)
+  if (dDelta === 0) dateStr = 'Today'
+  else if (dDelta === 1) dateStr = 'Tomorrow'
+  else if (dDelta === -1) dateStr = 'Yesterday'
+
+  const primaryActionLabel = isPast ? 'View' : (s.status === 'lobby' ? 'Sign up' : 'Play')
+
+  li.innerHTML = `
+    <div class="flex-1 min-w-0">
+      <div class="flex items-baseline justify-between gap-2">
+        <div class="font-display font-bold text-ink truncate">${escapeHtml(s.roomId)}</div>
+        <span class="text-[10px] ${statusColor} uppercase tracking-widest shrink-0">${statusLabel}</span>
+      </div>
+      <div class="text-xs text-sub mt-0.5 truncate">
+        ${dateStr ? escapeHtml(dateStr) + ' · ' : ''}${players} signed up${playedCount ? ` · ${playedCount} played` : ''}${totalMatches ? ` · ${doneMatches}/${totalMatches} matches` : ''}
+      </div>
+      ${signedUpPreview ? `<div class="text-xs text-sub mt-1 truncate">👥 ${escapeHtml(signedUpPreview)}</div>` : ''}
+      ${leader ? `<div class="text-xs text-volt mt-0.5 truncate">🏆 ${escapeHtml(leader)}</div>` : ''}
+    </div>
+    <div class="flex flex-col gap-1 shrink-0">
+      <span class="bg-volt text-bg text-xs font-bold px-3 py-2 rounded-lg text-center pointer-events-none">${primaryActionLabel}</span>
+      <button type="button" data-delete-room="${escapeHtml(s.roomId)}"
+              class="bg-panel2 border border-line text-sub text-xs px-3 py-2 rounded-lg active:scale-95 transition"
+              aria-label="Remove from this device">🗑</button>
+    </div>
+  `
+  return li
+}
+
+function renderHome() {
+  const all = enumerateLocalRooms()
+
+  // Split by tournament date — today or future = "Happening Now / Upcoming",
+  // strictly before today = "Previous".
+  const today = []
+  const past  = []
+  for (const s of all) {
+    const delta = daysFromToday(tournamentDateOf(s))
+    if (delta === null || delta >= 0) today.push(s)
+    else past.push(s)
+  }
+  today.sort((a, b) => (daysFromToday(tournamentDateOf(a)) ?? 0) - (daysFromToday(tournamentDateOf(b)) ?? 0))
+  past.sort((a, b) => (tournamentDateOf(b)?.getTime() || 0) - (tournamentDateOf(a)?.getTime() || 0))
+
+  const todaySection = $('[data-role="home-today"]')
+  const todayList = $('[data-role="home-today-list"]')
+  const pastSection = $('[data-role="home-past"]')
+  const pastList = $('[data-role="home-past-list"]')
+  const emptySection = $('[data-role="home-empty"]')
+
+  todayList.innerHTML = ''
+  pastList.innerHTML = ''
+
+  if (today.length) {
+    todaySection.classList.remove('hidden')
+    today.forEach(s => todayList.appendChild(renderTournamentCard(s, { isPast: false })))
+  } else {
+    todaySection.classList.add('hidden')
+  }
+
+  if (past.length) {
+    pastSection.classList.remove('hidden')
+    past.forEach(s => pastList.appendChild(renderTournamentCard(s, { isPast: true })))
+  } else {
+    pastSection.classList.add('hidden')
+  }
+
+  if (!today.length && !past.length) {
+    emptySection.classList.remove('hidden')
+  } else {
+    emptySection.classList.add('hidden')
   }
 }
 
@@ -654,17 +843,20 @@ function toast(msg, ms = 2200) {
 
 function getRoomFromURL() {
   const params = new URLSearchParams(location.search)
-  return params.get('room')
+  // Support both new short param `?r=` and legacy `?room=`
+  return params.get('r') || params.get('room')
 }
 
 function setRoomInURL(roomId) {
   const url = new URL(location.href)
-  url.searchParams.set('room', roomId)
+  url.searchParams.delete('room')
+  url.searchParams.set('r', roomId)
   history.replaceState(null, '', url)
 }
 
 function clearRoomFromURL() {
   const url = new URL(location.href)
+  url.searchParams.delete('r')
   url.searchParams.delete('room')
   history.replaceState(null, '', url)
 }
@@ -673,27 +865,98 @@ function clearRoomFromURL() {
 // Wiring
 // ---------------------------------------------------------------------------
 
-function wireSetup() {
-  const nameInput = $('[data-role="new-room-name"]')
-  const pinInput = $('[data-role="new-room-pin"]')
-  nameInput.value = generateRoomName()
+// State for the setup screen — date + re-rollable suffix
+let setupSuffix = randomSuffix()
 
-  $('[data-role="roll-room-name"]').onclick = () => { nameInput.value = generateRoomName() }
+function randomSuffix() {
+  return Math.random().toString(36).replace(/[^a-z0-9]/g, '').slice(0, 2).padEnd(2, 'x')
+}
+
+function updateRoomPreview() {
+  const dateInput = $('[data-role="new-room-date"]')
+  const preview = $('[data-role="new-room-preview"]')
+  if (!dateInput || !preview) return
+  const dateStr = dateInput.value || toDateInputValue(new Date())
+  // Parse as local midnight to avoid off-by-one day from UTC
+  const [y, m, d] = dateStr.split('-').map(Number)
+  const date = new Date(y, m - 1, d)
+  preview.textContent = generateRoomName(date, setupSuffix)
+}
+
+function wireSetup() {
+  const dateInput = $('[data-role="new-room-date"]')
+  const pinInput = $('[data-role="new-room-pin"]')
+  dateInput.value = toDateInputValue(new Date())
+  updateRoomPreview()
+
+  dateInput.oninput = updateRoomPreview
+
+  $('[data-role="roll-room-name"]').onclick = () => {
+    setupSuffix = randomSuffix()
+    updateRoomPreview()
+  }
 
   $('[data-role="create-room"]').onclick = async () => {
-    const roomName = nameInput.value.trim().replace(/\s+/g, '-')
+    const roomName = $('[data-role="new-room-preview"]').textContent.trim()
+    const tournamentDate = dateInput.value
     const pin = pinInput.value.trim()
-    if (roomName.length < 3) { toast('Room name too short'); return }
+    if (!roomName || roomName.length < 3) { toast('Pick a date first'); return }
     if (!/^\d{2}$/.test(pin)) { toast('PIN must be exactly 2 digits'); return }
-    await createRoom({ roomName, pin })
+    await createRoom({ roomName, pin, tournamentDate })
     showTab('lobby')
   }
 
+  $('[data-role="setup-back"]').onclick = () => {
+    showHome()
+  }
+}
+
+function wireHome() {
+  $('[data-role="home-new"]').onclick = () => {
+    setupSuffix = randomSuffix()
+    updateRoomPreview()
+    showSetup({ fromHome: true })
+  }
+
   $('[data-role="join-existing"]').onclick = () => {
-    const entered = prompt('Enter existing room name:')
+    const entered = prompt('Enter existing room ID (e.g., sat18apr-qz):')
     if (entered) {
       setRoomInURL(entered.trim())
       location.reload()
+    }
+  }
+
+  // Delegated click for resume + delete on tournament cards
+  const onCardClick = (e) => {
+    const del = e.target.closest('[data-delete-room]')
+    if (del) {
+      e.stopPropagation()
+      const rid = del.dataset.deleteRoom
+      if (!confirm(`Remove "${rid}" from this device? Others in the room still have it; you can rejoin via the URL.`)) return
+      localStorage.removeItem(LS_STATE(rid))
+      localStorage.removeItem(LS_PIN(rid))
+      renderHome()
+      return
+    }
+    const card = e.target.closest('[data-resume-room]')
+    if (card) {
+      const rid = card.dataset.resumeRoom
+      setRoomInURL(rid)
+      location.reload()
+    }
+  }
+  $('[data-role="home-today-list"]').addEventListener('click', onCardClick)
+  $('[data-role="home-past-list"]').addEventListener('click', onCardClick)
+}
+
+function wireBrand() {
+  $('[data-role="brand"]').onclick = () => {
+    // If in a room, go back to home. If already on home/setup, no-op.
+    if (state.roomId) {
+      if (roomHandle) { try { roomHandle.leave() } catch {} ; roomHandle = null }
+      state = initialState()
+      clearRoomFromURL()
+      showHome()
     }
   }
 }
@@ -777,10 +1040,12 @@ function wireShare() {
 
 async function boot() {
   wireSetup()
+  wireHome()
   wireLobby()
   wireMatches()
   wireTabs()
   wireShare()
+  wireBrand()
 
   const urlRoom = getRoomFromURL()
   if (urlRoom) {
@@ -792,12 +1057,21 @@ async function boot() {
       state = initialState()
       state.roomId = urlRoom
     }
+    // Normalise URL: upgrade legacy ?room= to ?r=
+    setRoomInURL(urlRoom)
     joinTrysteroRoom(urlRoom)
     showTab('lobby')
-  } else {
-    showView('setup')
+    render()
+    return
   }
-  render()
+
+  // No room in URL — show home or setup depending on whether there's history
+  const existing = enumerateLocalRooms()
+  if (existing.length === 0) {
+    showSetup({ fromHome: false })
+  } else {
+    showHome()
+  }
 }
 
 boot()
