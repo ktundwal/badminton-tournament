@@ -183,14 +183,20 @@ async function createRoom({ roomName, pin }) {
 function addPlayer(name) {
   name = name.trim()
   if (!name) return
-  if (state.players.some(p => p.name.toLowerCase() === name.toLowerCase())) {
-    toast('Name already taken')
+  // Trust model: if someone types a name already in the roster, they're
+  // claiming their existing slot from another device — not creating a
+  // duplicate. Use the canonical casing from the existing entry.
+  const existing = state.players.find(p => p.name.toLowerCase() === name.toLowerCase())
+  if (existing) {
+    myName = existing.name
+    localStorage.setItem('cc:myName', myName)
+    toast(`Welcome back, ${myName}`)
+    render()
     return
   }
   mutate(s => {
     s.players.push({ id: uid(), name, joinedAt: Date.now() })
   })
-  // Remember name for this device
   myName = name
   localStorage.setItem('cc:myName', name)
 }
